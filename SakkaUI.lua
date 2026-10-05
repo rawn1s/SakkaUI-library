@@ -17,22 +17,26 @@
 
 	FLAGS
 	  Every interactive control registers itself in <Tab>.Flags[<Name>] = <control object>.
+===========================================================================================
 ]]
 
+-- =========================================================================================
 --  1. SERVICES
+-- =========================================================================================
 
 local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
-local CoreGui          = game:GetService("CoreGui")
 local HttpService      = game:GetService("HttpService")
 
 
--- Loading screen logo asset
+-- Loading screen logo asset (assign a 1:1 star-eye PNG asset id)
 local STAR_EYE_IMAGE_ID = "rbxassetid://132033501479451"
 local LocalPlayer = Players.LocalPlayer
 
+-- =========================================================================================
 --  2. PUBLIC TYPES
+-- =========================================================================================
 
 export type ButtonConfig = {
 	Text: string,
@@ -137,7 +141,9 @@ export type MultiDropdownConfig = {
 	Callback: ((selected: { string }) -> ())?,
 }
 
+-- =========================================================================================
 --  3. ENGINE - HARDCODED THEME
+-- =========================================================================================
 
 local Theme = {
 	Colors = {
@@ -198,7 +204,9 @@ local Theme = {
 	Keybind = Enum.KeyCode.RightControl,
 }
 
+-- =========================================================================================
 --  4. ENGINE - PRIMITIVE BUILDERS
+-- =========================================================================================
 
 local function create(className: string, props: {[string]: any}?, children: {Instance}?): any
 	local instance = Instance.new(className)
@@ -262,7 +270,9 @@ local function addStroke(parent: Instance, color: Color3, thickness: number, tra
 	})
 end
 
+-- =========================================================================================
 --  5. ENGINE - EFFECTS / SHADERS
+-- =========================================================================================
 
 local Effects = {}
 
@@ -330,7 +340,9 @@ function Effects.bindHover(row: GuiObject, label: TextLabel?, bar: GuiObject?)
 	end)
 end
 
+-- =========================================================================================
 --  5b. DEPENDENCY SYSTEM (DependsOn)
+-- =========================================================================================
 
 -- A control may declare DependsOn = <parentControl> (visible while the parent is truthy,
 -- e.g. a Toggle that is ON) or DependsOn = { Control = <parentControl>, Value = <expected> }
@@ -473,7 +485,9 @@ local function addPaidBadge(label: TextLabel, config: any)
 	return badge
 end
 
+-- =========================================================================================
 --  6. GLOBAL KEY-CAPTURE BUS
+-- =========================================================================================
 
 local activeKeyCapture: ((Enum.KeyCode) -> ())? = nil
 
@@ -519,7 +533,9 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 	end
 end)
 
+-- =========================================================================================
 --  7. CLASS TABLES
+-- =========================================================================================
 
 local Library: any = {}
 Library.__index = Library
@@ -530,7 +546,9 @@ Window.__index = Window
 local Tab: any = {}
 Tab.__index = Tab
 
+-- =========================================================================================
 --  8. LIBRARY
+-- =========================================================================================
 
 local function resolveGuiParent(): Instance
 	if LocalPlayer then
@@ -539,7 +557,16 @@ local function resolveGuiParent(): Instance
 			return playerGui
 		end
 	end
-	return CoreGui
+	-- executor-safe: never touch the protected CoreGui service.
+	-- gethui() is the executor's safe GUI container when available.
+	local hui = nil
+	pcall(function()
+		hui = gethui and gethui() or nil
+	end)
+	if hui then
+		return hui
+	end
+	return game:GetService("Players")
 end
 
 function Library.new()
@@ -625,7 +652,9 @@ function Library:_bindToggleKeybind()
 	end))
 end
 
+-- =========================================================================================
 --  THEME ENGINE
+-- =========================================================================================
 
 local function themePalette(accent: Color3, background: Color3, card: Color3, text: Color3, textMuted: Color3, backgroundImage: string?)
 	return {
@@ -640,7 +669,7 @@ local function themePalette(accent: Color3, background: Color3, card: Color3, te
 	}
 end
 
---1-WORD PURE ACCENT THEMES (no background artwork)
+-- ===== 1-WORD PURE ACCENT THEMES (no background artwork) =====
 Library.Themes = {
 	["Monochromatic"] = themePalette(
 		Color3.fromRGB(220, 220, 225),
@@ -698,7 +727,7 @@ Library.Themes = {
 		Color3.fromRGB(255, 255, 255),
 		Color3.fromRGB(205, 165, 190)
 	),
-	-- 2-WORD PREMIUM PRESET THEMES (literal names matching the artwork)
+	-- ===== 2-WORD PREMIUM PRESET THEMES (literal names matching the artwork) =====
 	["Midnight Storm"] = themePalette(
 		Color3.fromRGB(35, 35, 45),
 		Color3.fromRGB(10, 10, 14),
@@ -1345,7 +1374,7 @@ function Window:_buildSettings()
 		end,
 	})
 
--- 3. Custom master toggle
+-- 3. Custom master toggle (strict transitions, no snapshotting)
 
 	local customToggle
 	customToggle = tab:AddToggle({
@@ -1761,7 +1790,9 @@ function Window:_refreshTheme(palette: any)
 	end
 end
 
+-- =========================================================================================
 --  9. WINDOW
+-- =========================================================================================
 
 function Window:_build(parent: Instance)
 	local main = create("Frame", {
@@ -2307,7 +2338,7 @@ function Window:_buildResizeHandles()
 
 	local library = self.Library
 
-	UserInputService.InputChanged:Connect(function(input: InputObject)
+	library:_track(UserInputService.InputChanged:Connect(function(input: InputObject)
 		if not self._resizing or not self._resizeStart or not self._resizeStartSize or not self._resizeStartPos then
 			return
 		end
@@ -2349,9 +2380,9 @@ function Window:_buildResizeHandles()
 		-- the frame is center-anchored, so moving a dragged edge also shifts the center
 		main.Size = UDim2.fromOffset(math.round(newX), math.round(newY))
 		main.Position = UDim2.new(0.5, math.round(startPos.X + shiftX), 0.5, math.round(startPos.Y + shiftY))
-	end)
+	end))
 
-	UserInputService.InputEnded:Connect(function(input: InputObject)
+	library:_track(UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			self._resizing = false
@@ -2359,7 +2390,7 @@ function Window:_buildResizeHandles()
 			self._resizeStartSize = nil
 			self._resizeStartPos = nil
 		end
-	end)
+	end))
 end
 
 function Window:SetFreeform(enabled: boolean)
@@ -3178,7 +3209,7 @@ function Window:_showLoadingScreen()
 		Parent = game:GetService("Lighting"),
 	})
 
-	-- STAR-EYE LOGO
+	-- ===== STAR-EYE LOGO (ImageLabel, pixel-perfect 1:1 asset) =====
 	local logo = create("ImageLabel", {
 		Name = "Logo",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -3195,7 +3226,7 @@ function Window:_showLoadingScreen()
 	Effects.tween(logo, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 0 })
 	Effects.tween(logoScale, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 })
 
-	-- SEQUENTIAL MESSAGES
+	-- ===== SEQUENTIAL MESSAGES (fade in from black) =====
 	local messages = {
 		"Initializing Sakka Core Engine...",
 		"Decrypting payload & verifying security tokens...",
@@ -3243,7 +3274,7 @@ function Window:_showLoadingScreen()
 		table.insert(labels, lbl)
 	end
 
-	-- PERCENTAGE COUNTER ONLY
+	-- ===== PERCENTAGE COUNTER ONLY (no bar) =====
 	local pctLabel = create("TextLabel", {
 		Name = "Percent",
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -3260,7 +3291,7 @@ function Window:_showLoadingScreen()
 		Parent = overlay,
 	})
 
-	-- TIMELINE
+	-- ===== TIMELINE =====
 	local STEP = 0.52
 	local TOTAL = STEP * #messages
 
@@ -3440,7 +3471,9 @@ function Window:_bindDrag()
 		startPos = main.Position
 	end)
 
-	UserInputService.InputChanged:Connect(function(input: InputObject)
+	local library = self.Library
+
+	library:_track(UserInputService.InputChanged:Connect(function(input: InputObject)
 		if not self.Dragging then
 			return
 		end
@@ -3468,16 +3501,16 @@ function Window:_bindDrag()
 			TweenInfo.new(self.DragSmoothing, Enum.EasingStyle.Linear),
 			{ Position = target }
 		)
-	end)
+	end))
 
-	UserInputService.InputEnded:Connect(function(input: InputObject)
+	library:_track(UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			self.Dragging = false
 			dragStart = nil
 			startPos = nil
 		end
-	end)
+	end))
 end
 
 function Window:CreateTab(name: string, iconId: string?)
@@ -3802,7 +3835,9 @@ function Window:Destroy()
 	end
 end
 
+-- =========================================================================================
 --  10. TAB - CONTROL FACTORY
+-- =========================================================================================
 
 function Tab:_nextOrder(): number
 	self.Order += 1
@@ -5067,7 +5102,9 @@ function Tab:AddKeybind(config: KeybindConfig)
 	return object
 end
 
+-- =========================================================================================
 --  11. LIBRARY - NOTIFICATIONS
+-- =========================================================================================
 
 function Library:Notify(config: NotifyConfig)
 	-- 40% lifetime: toast + progress line drain 2.5x faster
@@ -5077,7 +5114,7 @@ function Library:Notify(config: NotifyConfig)
 
 	local record = self._activeToasts[toastType]
 
-	-- IN-PLACE REFRESH
+	-- ===== IN-PLACE REFRESH =====
 	-- Same type already on screen: never destroy or re-create the frame. Update the
 	-- text in place, pulse the card + content, and reset the auto-close countdown
 	-- (and the top progress line) instead of spawning a duplicate.
@@ -5277,7 +5314,9 @@ function Library:Notify(config: NotifyConfig)
 	return toast
 end
 
+-- =========================================================================================
 --  12. MODULE EXPORT
+-- =========================================================================================
 
 local Sakka = {
 	new = Library.new,
