@@ -3849,14 +3849,43 @@ function Tab:_target(): Instance
 end
 
 function Tab:AddSection(text: string, columnName: string?)
-	if columnName == "Left" then
-		self._columnToggle = true
-	elseif columnName == "Right" then
-		self._columnToggle = false
+	local side
+	if columnName == "Left" or columnName == "Right" then
+		-- explicit choice always wins
+		side = columnName
+		self._columnToggle = (columnName == "Left")
 	else
-		self._columnToggle = not self._columnToggle
+		-- dynamic masonry: drop the section into whichever column is shorter.
+		-- AbsoluteContentSize can read 0 on the very first frame, so fall back
+		-- to the old alternating toggle when both columns measure as empty.
+		local function measure(column: Instance?): number
+			if not column then
+				return 0
+			end
+			local layout = column:FindFirstChildOfClass("UIListLayout")
+			if not layout then
+				return 0
+			end
+			local ok, size = pcall(function()
+				return layout.AbsoluteContentSize.Y
+			end)
+			if ok and type(size) == "number" then
+				return size
+			end
+			return 0
+		end
+
+		local leftHeight = measure(self.LeftColumn)
+		local rightHeight = measure(self.RightColumn)
+		if leftHeight == 0 and rightHeight == 0 then
+			-- nothing rendered yet - alternate so the first few sections still split
+			self._columnToggle = not self._columnToggle
+			side = self._columnToggle and "Left" or "Right"
+		else
+			side = (leftHeight <= rightHeight) and "Left" or "Right"
+			self._columnToggle = (side == "Left")
+		end
 	end
-	local side = self._columnToggle and "Left" or "Right"
 	local stacked = self.Window and self.Window.SectionLayout == "Stacked"
 	local column = (stacked or side == "Left") and self.LeftColumn or self.RightColumn
 	self.TargetColumn = column
@@ -3911,6 +3940,58 @@ function Tab:AddLabel(text: string)
 		Parent = self:_target(),
 	})
 	return label
+end
+
+-- A compact, slightly lighter rounded box for small notes / disclaimers.
+-- Returns an object with :SetText(newText) for dynamic updates.
+function Tab:AddDisclaimer(text: string)
+	local container = create("Frame", {
+		Name = "Disclaimer",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Color3.fromRGB(32, 32, 38),
+		BackgroundTransparency = 0.1,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self:_target(),
+	})
+	addCorner(container, 5)
+	addPadding(container, 6, 10, 6, 10)
+
+	local label = create("TextLabel", {
+		Name = "Text",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Font = Theme.Fonts.Body,
+		Text = text,
+		TextSize = 12,
+		TextColor3 = Color3.fromRGB(160, 160, 168),
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		LayoutOrder = 0,
+		Parent = container,
+	})
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		Padding = UDim.new(0, 0),
+		Parent = container,
+	})
+
+	local object: any = {}
+	object.Instance = container
+	object.Label = label
+	function object:SetText(newText: string)
+		label.Text = newText
+	end
+	function object:GetText(): string
+		return label.Text
+	end
+	return object
 end
 
 function Tab:AddButton(config: ButtonConfig)
