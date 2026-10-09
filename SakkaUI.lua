@@ -28,6 +28,7 @@ local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService     = game:GetService("TweenService")
 local HttpService      = game:GetService("HttpService")
+local TextService      = game:GetService("TextService")
 
 
 -- Loading screen logo asset (assign a 1:1 star-eye PNG asset id)
@@ -40,6 +41,7 @@ local LocalPlayer = Players.LocalPlayer
 
 export type ButtonConfig = {
 	Text: string,
+	Note: string?,
 	DependsOn: any?,
 	Paid: boolean?,
 	PaidBadgeText: string?,
@@ -49,6 +51,7 @@ export type ButtonConfig = {
 
 export type ToggleConfig = {
 	Text: string,
+	Note: string?,
 	Default: boolean?,
 	DependsOn: any?,
 	Paid: boolean?,
@@ -59,6 +62,7 @@ export type ToggleConfig = {
 
 export type SliderConfig = {
 	Text: string,
+	Note: string?,
 	Min: number,
 	Max: number,
 	Default: number?,
@@ -73,6 +77,7 @@ export type SliderConfig = {
 
 export type DropdownConfig = {
 	Text: string,
+	Note: string?,
 	Options: { string },
 	Default: string?,
 	DependsOn: any?,
@@ -88,6 +93,7 @@ export type DropdownConfig = {
 
 export type TextInputConfig = {
 	Text: string,
+	Note: string?,
 	Placeholder: string?,
 	Default: string?,
 	DependsOn: any?,
@@ -101,6 +107,7 @@ export type TextInputConfig = {
 
 export type KeybindConfig = {
 	Text: string,
+	Note: string?,
 	Default: Enum.KeyCode?,
 	DependsOn: any?,
 	Paid: boolean?,
@@ -135,6 +142,7 @@ export type WindowConfig = {
 
 export type MultiDropdownConfig = {
 	Title: string,
+	Note: string?,
 	Options: { string },
 	Default: { string }?,
 	DependsOn: any?,
@@ -268,6 +276,71 @@ local function addStroke(parent: Instance, color: Color3, thickness: number, tra
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		Parent = parent,
 	})
+end
+
+-- Optional small note rendered INSIDE a control card, between its title and its
+-- interactive element. Indented slightly more than the title and set at ~78% of
+-- the control's label text size. Returns the note's height in px (0 when absent)
+-- so the caller can grow the card and shift its control down by that amount.
+local NOTE_TEXT_RATIO = 0.78
+local NOTE_COLOR = Color3.fromRGB(150, 150, 158)
+local function addControlNote(parent: GuiObject, text: string?, yPos: number, baseTextSize: number, widthHint: number): number
+	if not text or text == "" then
+		return 0
+	end
+	local size = math.max(9, math.floor(baseTextSize * NOTE_TEXT_RATIO + 0.5))
+	local width = math.max(60, widthHint - 45)
+	local h
+	local ok, res = pcall(function()
+		return TextService:GetTextSize(text, size, Theme.Fonts.Body, Vector2.new(width, 100000))
+	end)
+	if ok and res then
+		h = math.ceil(res.Y)
+	else
+		h = size * 2
+	end
+	create("TextLabel", {
+		Name = "Note",
+		Position = UDim2.new(0, 20, 0, yPos),
+		Size = UDim2.new(1, -40, 0, h),
+		BackgroundTransparency = 1,
+		Font = Theme.Fonts.Body,
+		Text = text,
+		TextSize = size,
+		TextColor3 = NOTE_COLOR,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.None,
+		LayoutOrder = 1,
+		Parent = parent,
+	})
+	return h
+end
+
+-- Wraps an already-built control row so an optional note can sit directly under
+-- it. Returns the element that should receive the section's LayoutOrder and any
+-- DependsOn binding (the wrapper when a note exists, otherwise the row itself).
+local function attachNote(row: GuiObject, note: string?, baseTextSize: number, widthHint: number): GuiObject
+	if not note or note == "" then
+		return row
+	end
+	local target = row.Parent
+	local order = row.LayoutOrder
+	local wrapper = create("Frame", {
+		Name = row.Name .. "_Wrap",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		LayoutOrder = order,
+		Parent = target,
+	})
+	addList(wrapper, 2, Enum.HorizontalAlignment.Center)
+	row.LayoutOrder = 0
+	row.Parent = wrapper
+	addControlNote(wrapper, note, 0, baseTextSize, widthHint)
+	return wrapper
 end
 
 -- =========================================================================================
@@ -4040,6 +4113,8 @@ function Tab:AddButton(config: ButtonConfig)
 	Effects.bindHover(row, label, bar)
 	addPaidBadge(label, config)
 
+	local holder = attachNote(row, config.Note, 14, 260)
+
 	row.MouseButton1Click:Connect(function()
 		if callback then
 			task.spawn(callback)
@@ -4047,7 +4122,7 @@ function Tab:AddButton(config: ButtonConfig)
 	end)
 
 	if config.DependsOn then
-		bindDepends(config.DependsOn, row)
+		bindDepends(config.DependsOn, holder)
 	end
 
 	return row
@@ -4121,6 +4196,8 @@ function Tab:AddToggle(config: ToggleConfig)
 	Effects.bindHover(row, label, bar)
 	addPaidBadge(label, config)
 
+	local holder = attachNote(row, config.Note, 13, 260)
+
 	local object: any = {}
 	object.Value = config.Default == true
 	object.Instance = row
@@ -4173,7 +4250,7 @@ function Tab:AddToggle(config: ToggleConfig)
 	object:Set(object.Value, false)
 	self.Flags[text] = object
 	if config.DependsOn then
-		bindDepends(config.DependsOn, row)
+		bindDepends(config.DependsOn, holder)
 	end
 
 	return object
@@ -4198,6 +4275,13 @@ function Tab:AddSlider(config: SliderConfig)
 		Parent = self:_target(),
 	})
 	addCorner(holder, Theme.Sizes.ControlCorner)
+
+	-- optional note sits between the title and the track; the holder grows and the
+	-- track shifts down to make room for it.
+	local noteH = addControlNote(holder, config.Note, 26, 13, 260)
+	if noteH > 0 then
+		holder.Size = UDim2.new(1, 0, 0, 55 + noteH)
+	end
 
 	local label = create("TextLabel", {
 		Name = "Label",
@@ -4231,7 +4315,7 @@ function Tab:AddSlider(config: SliderConfig)
 
 	local trackHolder = create("Frame", {
 		Name = "TrackHolder",
-		Position = UDim2.new(0, 12, 0, 32),
+		Position = UDim2.new(0, 12, 0, 32 + noteH),
 		Size = UDim2.new(1, -24, 0, 14),
 		BackgroundTransparency = 1,
 		Parent = holder,
@@ -4412,9 +4496,15 @@ function Tab:AddDropdown(config: DropdownConfig)
 		Parent = card,
 	})
 
+	-- optional note sits between the title and the selection bar; the card grows
+	-- and the bar shifts down to make room for it.
+	local noteH = addControlNote(card, config.Note, 27, 14, 260)
+	local buttonY = 32 + noteH
+	card.Size = UDim2.new(1, 0, 0, 55 + noteH)
+
 	local button = create("TextButton", {
 		Name = "Button",
-		Position = UDim2.new(0, 12, 0, 32),
+		Position = UDim2.new(0, 12, 0, buttonY),
 		Size = UDim2.new(1, -24, 0, 18),
 		BackgroundColor3 = Theme.Colors.DropdownBar,
 		BackgroundTransparency = 0,
@@ -4734,9 +4824,14 @@ function Tab:AddMultiDropdown(config: MultiDropdownConfig)
 		Parent = card,
 	})
 
+	local noteH = addControlNote(card, config.Note, 27, 14, 260)
+	if noteH > 0 then
+		card.Size = UDim2.new(1, 0, 0, 55 + noteH)
+	end
+
 	local button = create("TextButton", {
 		Name = "Button",
-		Position = UDim2.new(0, 12, 0, 32),
+		Position = UDim2.new(0, 12, 0, 32 + noteH),
 		Size = UDim2.new(1, -24, 0, 18),
 		BackgroundColor3 = Theme.Colors.DropdownBar,
 		BackgroundTransparency = 0,
@@ -5053,8 +5148,9 @@ function Tab:AddTextInput(config: TextInputConfig)
 	end
 
 	self.Flags[text] = object
+	local holder = attachNote(row, config.Note, 13, 260)
 	if config.DependsOn then
-		bindDepends(config.DependsOn, row)
+		bindDepends(config.DependsOn, holder)
 	end
 
 	return object
@@ -5176,8 +5272,9 @@ function Tab:AddKeybind(config: KeybindConfig)
 
 	render()
 	self.Flags[text] = object
+	local holder = attachNote(row, config.Note, 13, 260)
 	if config.DependsOn then
-		bindDepends(config.DependsOn, row)
+		bindDepends(config.DependsOn, holder)
 	end
 
 	return object
